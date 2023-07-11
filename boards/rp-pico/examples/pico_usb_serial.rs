@@ -18,7 +18,9 @@
 
 
 use embedded_hal::digital::v2::OutputPin;
+use embedded_hal::adc::OneShot;
 use hal::gpio::PinState;
+
 // The macro for our start-up function
 use rp_pico::entry;
 
@@ -126,6 +128,9 @@ fn main() -> ! {
 
     let mut said_hello = false;
     let mut pin_state = PinState::from(false);
+    let mut adc = hal::adc::Adc::new(pac.ADC, &mut pac.RESETS);
+    let mut adc_pin =  pins.gpio27.into_floating_input();
+    let mut reading: u16 = adc.read(&mut adc_pin).unwrap();
     loop {
         // A welcome message to show we're alive
         if !said_hello && timer.get_counter().ticks() >= 5_000_000 {
@@ -136,13 +141,16 @@ fn main() -> ! {
             let time = timer.get_counter().ticks();
             let mut text: String<64> = String::new();
             writeln!(&mut text, "Current timer ticks: {}\r\n", time).unwrap();
-
+            // writeln!(&mut text, "Temp reading: {}\r\n", internal_temp_sensor).unwrap();
+            writeln!(&mut text, "ADC reading: {}\r\n", reading).unwrap();
+            
             // This only works reliably because the number of bytes written to
             // the serial port is smaller than the buffers available to the USB
             // peripheral. In general, the return value should be handled, so that
             // bytes not transferred yet don't get lost.
             let _ = serial.write(text.as_bytes());
         }
+
 
         // Check for new data
         if usb_dev.poll(&mut [&mut serial]) {
@@ -153,6 +161,10 @@ fn main() -> ! {
                     // let _ = serial.write(b"No Data in serial buffer!\r\n");
                 }
                 Ok(0) => {
+                    let mut t: String<64> = String::new();
+                    reading = adc.read(&mut adc_pin).unwrap();
+                    writeln!(&mut t, "ADC1 reading: {}\r\n", 11).unwrap();
+                    let _ = serial.write(t.as_bytes());
                     // Do nothing
                 }
                 Ok(count) => {
@@ -168,6 +180,8 @@ fn main() -> ! {
                                 wr_ptr = &wr_ptr[len..];
                                 pin_state = !pin_state;
                                 led_pin.set_state(pin_state).unwrap();
+                                
+
                                 },
                             // On error, just drop unwritten data.
                             // One possible error is Err(WouldBlock), meaning the USB
