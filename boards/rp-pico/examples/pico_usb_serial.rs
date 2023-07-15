@@ -1,7 +1,5 @@
 // q: What does this code does?
 
-
-
 //! # Pico USB Serial Example
 //!
 //! Creates a USB Serial device on a Pico board, with the USB driver running in
@@ -16,11 +14,11 @@
 #![no_std]
 #![no_main]
 
-
-use embedded_hal::digital::v2::OutputPin;
 use embedded_hal::adc::OneShot;
+use embedded_hal::digital::v2::OutputPin;
 use hal::gpio::PinState;
-
+use onewire::{ DeviceSearch, OneWire};
+use rp_pico::hal::Clock;
 // The macro for our start-up function
 use rp_pico::entry;
 
@@ -45,7 +43,6 @@ use usbd_serial::SerialPort;
 // Used to demonstrate writing formatted strings
 use core::fmt::Write;
 use heapless::String;
-
 
 /// Entry point to our bare-metal application.
 ///
@@ -77,20 +74,28 @@ fn main() -> ! {
     .ok()
     .unwrap();
 
-        // The single-cycle I/O block controls our GPIO pins
-        let sio = hal::Sio::new(pac.SIO);
+    // The single-cycle I/O block controls our GPIO pins
+    let sio = hal::Sio::new(pac.SIO);
 
-        // Set the pins up according to their function on this particular board
-        let pins = rp_pico::Pins::new(
-            pac.IO_BANK0,
-            pac.PADS_BANK0,
-            sio.gpio_bank0,
-            &mut pac.RESETS,
-        );
-    
-        // Set the LED to be an output
-        let mut led_pin = pins.gpio26.into_push_pull_output();
-        led_pin.set_low().unwrap();
+    // Set the pins up according to their function on this particular board
+    let pins = rp_pico::Pins::new(
+        pac.IO_BANK0,
+        pac.PADS_BANK0,
+        sio.gpio_bank0,
+        &mut pac.RESETS,
+    );
+
+    // The delay object lets us wait for specified amounts of time (in
+    // milliseconds)
+    let core = pac::CorePeripherals::take().unwrap();
+    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
+
+    // Set the LED to be an output
+    let mut led_pin = pins.gpio26.into_push_pull_output();
+    led_pin.set_low().unwrap();
+
+    let mut one = pins.gpio16.into_readable_output();
+    let mut wire = OneWire::new(&mut one, false);
 
     #[cfg(feature = "rp2040-e5")]
     {
@@ -125,17 +130,33 @@ fn main() -> ! {
 
     let timer = hal::Timer::new(pac.TIMER, &mut pac.RESETS);
 
+    match wire.reset(&mut delay){
+        Err(_) => {
+            loop {
+                let _ = serial.write(b"Reset failed\r\n");
+            }
+        }
+        Ok(pulled_up) => {
+            
+                let mut text: String<64> = String::new();
+                writeln!(&mut text, "Reset succeeded. Pulled up: {}", pulled_up).unwrap();
+                let _ = serial.write(text.as_bytes());
+            
+        }
+    }
+
+    let mut search = DeviceSearch::new();
 
     let mut said_hello = false;
     let mut pin_state = PinState::from(false);
     let mut adc = hal::adc::Adc::new(pac.ADC, &mut pac.RESETS);
-    let mut adc_pin =  pins.gpio27.into_floating_input();
+    let mut adc_pin = pins.gpio27.into_floating_input();
     let mut reading: u16 = adc.read(&mut adc_pin).unwrap();
     loop {
         // A welcome message to show we're alive
         if !said_hello && timer.get_counter().ticks() >= 5_000_000 {
             said_hello = true;
-            
+
             let _ = serial.write(b"Hello, world!\r\n");
 
             let time = timer.get_counter().ticks();
@@ -143,28 +164,64 @@ fn main() -> ! {
             writeln!(&mut text, "Current timer ticks: {}\r\n", time).unwrap();
             // writeln!(&mut text, "Temp reading: {}\r\n", internal_temp_sensor).unwrap();
             writeln!(&mut text, "ADC reading: {}\r\n", reading).unwrap();
-            
+
             // This only works reliably because the number of bytes written to
             // the serial port is smaller than the buffers available to the USB
             // peripheral. In general, the return value should be handled, so that
             // bytes not transferred yet don't get lost.
             let _ = serial.write(text.as_bytes());
+
+            let _ = serial.write(b"Searching for devices...\r\n");
+            let next = wire.search_next(&mut search, &mut delay).unwrap();
+            match next {
+                Some(device) => {
+                    let mut text: String<64> = String::new();
+                    let _ = serial.write(b"Device found\r\n");
+                    let r = writeln!(
+                        &mut text,
+                        "\r\nFound device with family code: 0x{:x}\r\n",
+                        device.family_code()
+                    );
+
+                    let mut text: String<64> = String::new();
+                    let _ = write!(&mut text, " Device found :{}", device);
+
+                    match r {
+                        Ok(_) => {
+                            let _ = serial.write(b"\r\nOK!");
+                        }
+                        Err(_) => {
+                            let _x = serial.write(b"Something odd happened");
+                        }
+                    }
+                    
+                    // unsafe{
+                    //     // let mut ds = DS18B20::new_forced(device);
+                    //     // let res = ds.measure_temperature(&mut wire, &mut delay).unwrap();
+                    //     // // let temp = ds.read_temperature(&mut wire, &mut delay).unwrap();
+                    //     // let mut text: String<64> = String::new();
+                    //     // let _ = writeln!(&mut text, "Temperature: {} C", temp);
+                    //     // let _ = serial.write(text.as_bytes());
+
+                    // }
+
+                    
+                   // let resolution = temp_sensor.measure_temperature(&mut wire, &mut delay);
+                }
+                None => {
+                    let _ = serial.write(b"No Devices found...\r\n");
+                }
+            }
         }
-
-
         // Check for new data
         if usb_dev.poll(&mut [&mut serial]) {
             let mut buf = [0u8; 64];
             match serial.read(&mut buf) {
                 Err(_e) => {
                     // Do nothing
-                    // let _ = serial.write(b"No Data in serial buffer!\r\n");
                 }
                 Ok(0) => {
-                    let mut t: String<64> = String::new();
-                    reading = adc.read(&mut adc_pin).unwrap();
-                    writeln!(&mut t, "ADC1 reading: {}\r\n", 11).unwrap();
-                    let _ = serial.write(t.as_bytes());
+
                     // Do nothing
                 }
                 Ok(count) => {
@@ -180,9 +237,7 @@ fn main() -> ! {
                                 wr_ptr = &wr_ptr[len..];
                                 pin_state = !pin_state;
                                 led_pin.set_state(pin_state).unwrap();
-                                
-
-                                },
+                            }
                             // On error, just drop unwritten data.
                             // One possible error is Err(WouldBlock), meaning the USB
                             // write buffer is full.
@@ -191,6 +246,13 @@ fn main() -> ! {
                     }
                 }
             }
+        }
+        if said_hello == true {
+            // let mut t: String<64> = String::new();
+            reading = adc.read(&mut adc_pin).unwrap();
+            // let _ = serial.write("".as_bytes());
+            // write!(&mut t, "ADC1 reading: {}\r", reading).unwrap();
+            // let _ = serial.write(t.as_bytes());
         }
     }
 }

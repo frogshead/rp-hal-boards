@@ -17,6 +17,7 @@ rp2040-hal = { version = "0.8.0" }
 cortex-m-rt = { version = "0.7", optional = true }
 fugit = "0.3.5"
 usb-device= "0.2.9"
+onewire = "0.3.13"
 
 [dev-dependencies]
 rp2040-hal = { version = "0.8.0", features = [ "defmt" ] }
