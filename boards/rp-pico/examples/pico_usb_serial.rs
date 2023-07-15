@@ -176,19 +176,11 @@ fn main() -> ! {
             match next {
                 Some(device) => {
                     let mut text: String<64> = String::new();
-                    let _ = serial.write(b"Device found\r\n");
-                    let r = writeln!(
-                        &mut text,
-                        "\r\nFound device with family code: 0x{:x}\r\n",
-                        device.family_code()
-                    );
-
-                    let mut text: String<64> = String::new();
-                    let _ = write!(&mut text, " Device found :{}", device);
-
+                    let _ = write!(&mut text, "Device found :{}", device);
+                    let r = serial.write(text.as_bytes());
                     match r {
                         Ok(_) => {
-                            let _ = serial.write(b"\r\nOK!");
+                            let _ = serial.write(b"\r\n...OK!\r\n");
                         }
                         Err(_) => {
                             let _x = serial.write(b"Something odd happened");
