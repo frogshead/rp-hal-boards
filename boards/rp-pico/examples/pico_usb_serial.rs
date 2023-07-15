@@ -17,7 +17,7 @@
 use embedded_hal::adc::OneShot;
 use embedded_hal::digital::v2::OutputPin;
 use hal::gpio::PinState;
-use onewire::{ DeviceSearch, OneWire};
+use onewire::{ DeviceSearch, OneWire, DS18B20};
 use rp_pico::hal::Clock;
 // The macro for our start-up function
 use rp_pico::entry;
@@ -187,15 +187,25 @@ fn main() -> ! {
                         }
                     }
                     
-                    // unsafe{
-                    //     // let mut ds = DS18B20::new_forced(device);
-                    //     // let res = ds.measure_temperature(&mut wire, &mut delay).unwrap();
-                    //     // // let temp = ds.read_temperature(&mut wire, &mut delay).unwrap();
-                    //     // let mut text: String<64> = String::new();
-                    //     // let _ = writeln!(&mut text, "Temperature: {} C", temp);
-                    //     // let _ = serial.write(text.as_bytes());
-
-                    // }
+                    unsafe{
+                        let  ds = DS18B20::new_forced(device);
+                        let res = ds.measure_temperature(&mut wire, &mut delay).unwrap();
+                        delay.delay_ms(res.time_ms().into());
+                        let temp = ds.read_temperature(&mut wire, &mut delay);
+                        match temp {
+                            Ok(t) => {
+                                let mut text: String<64> = String::new();
+                                let _ = writeln!(&mut text, "Temperature: {} C in hex 0x{:x}", t,t);
+                                let _ = serial.write(text.as_bytes());
+                            }
+                            Err(_) => {
+                                let _ = serial.write(b"Error reading temperature\r\n");
+                            }
+                        }
+                            
+                        
+                        
+                    }
 
                     
                    // let resolution = temp_sensor.measure_temperature(&mut wire, &mut delay);
