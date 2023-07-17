@@ -195,7 +195,8 @@ fn main() -> ! {
                         match temp {
                             Ok(t) => {
                                 let mut text: String<64> = String::new();
-                                let _ = writeln!(&mut text, "Temperature: {} C in hex 0x{:x}", t,t);
+                                let temp_splitted = onewire::ds18b20::split_temp(t);
+                                let _ = writeln!(&mut text, "Temperature: {}.{}", temp_splitted.0,temp_splitted.1);
                                 let _ = serial.write(text.as_bytes());
                             }
                             Err(_) => {
